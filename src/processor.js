@@ -59,20 +59,39 @@ export function saveState(config, state) {
 
 export function fetchBookmarks(config, count = 10) {
   try {
-    // Build environment with Twitter credentials
-    const env = { ...process.env };
-    if (config.twitter?.authToken) {
-      env.AUTH_TOKEN = config.twitter.authToken;
-    }
-    if (config.twitter?.ct0) {
-      env.CT0 = config.twitter.ct0;
+    const birdCmd = config.birdPath || 'bird';
+
+    // Refresh GraphQL query IDs first (they expire quickly)
+    try {
+      execSync(`${birdCmd} query-ids --fresh`, {
+        encoding: 'utf8',
+        timeout: 30000,
+        stdio: 'pipe'
+      });
+    } catch (e) {
+      console.log('  Warning: Could not refresh query IDs');
     }
 
-    const birdCmd = config.birdPath || 'bird';
-    const output = execSync(`${birdCmd} bookmarks -n ${count} --json`, {
+    // bird CLI bug: -n > 5 fails with "Query: Unspecified"
+    // See: https://github.com/steipete/bird/issues
+    const MAX_COUNT = 5;
+    const actualCount = Math.min(count, MAX_COUNT);
+    if (count > MAX_COUNT) {
+      console.log(`  Note: bird CLI limits fetch to ${MAX_COUNT} bookmarks per request`);
+    }
+
+    // Build command with credentials as flags
+    let cmd = `${birdCmd} bookmarks -n ${actualCount} --json`;
+    if (config.twitter?.authToken) {
+      cmd += ` --auth-token "${config.twitter.authToken}"`;
+    }
+    if (config.twitter?.ct0) {
+      cmd += ` --ct0 "${config.twitter.ct0}"`;
+    }
+
+    const output = execSync(cmd, {
       encoding: 'utf8',
-      timeout: 30000,
-      env
+      timeout: 60000
     });
     return JSON.parse(output);
   } catch (error) {
@@ -82,19 +101,20 @@ export function fetchBookmarks(config, count = 10) {
 
 export function fetchTweet(config, tweetId) {
   try {
-    const env = { ...process.env };
+    const birdCmd = config.birdPath || 'bird';
+
+    // Build command with credentials as flags (bird doesn't use env vars)
+    let cmd = `${birdCmd} read ${tweetId} --json`;
     if (config.twitter?.authToken) {
-      env.AUTH_TOKEN = config.twitter.authToken;
+      cmd += ` --auth-token "${config.twitter.authToken}"`;
     }
     if (config.twitter?.ct0) {
-      env.CT0 = config.twitter.ct0;
+      cmd += ` --ct0 "${config.twitter.ct0}"`;
     }
 
-    const birdCmd = config.birdPath || 'bird';
-    const output = execSync(`${birdCmd} read ${tweetId} --json`, {
+    const output = execSync(cmd, {
       encoding: 'utf8',
-      timeout: 15000,
-      env
+      timeout: 30000
     });
     return JSON.parse(output);
   } catch (error) {
